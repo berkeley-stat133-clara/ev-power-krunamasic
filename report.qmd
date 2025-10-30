@@ -8,18 +8,95 @@ format: typst
 ## **Part 0: libraries**
 
 ```{r}
+install.packages(c("dplyr", "stringr", "ggplot2", "sf", "leaflet"))
 
+# Load the libraries
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(sf)
+library(leaflet)
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question:"How has the share of renewable energy changed from 2021–2023 across states?"
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
 
+setwd("/Users/kruna/Desktop/college/year3/statistics133/project4/ev-power-krunamasic")
+
+# Load the total energy use datasets for 2021, 2022, and 2023
+total_use_2021 <- read.csv("data/total-use-2021.csv")
+total_use_2022 <- read.csv("data/total-use-2022.csv")
+total_use_2023 <- read.csv("data/total-use-2023.csv")
+
+# Check the first few rows to ensure the data is loaded correctly
+#head(total_use_2021)
+#head(total_use_2022)
+#head(total_use_2023)
+#print('bleep')
+
+# Check the structure of total_use_2021
+str(total_use_2021)
+
+# Check the first few rows of total_use_2021
+head(total_use_2021)
+
+# Check the structure of total_use_2022
+str(total_use_2022)
+
+# Check the first few rows of total_use_2022
+head(total_use_2022)
+
+# Check the structure of total_use_2023
+str(total_use_2023)
+
+# Check the first few rows of total_use_2023
+head(total_use_2023)
+
+
 ```
+
+```{r}
+# Clean the Total Energy Use columns by removing non-numeric characters
+clean_total_use <- function(x) {
+  # Remove any non-numeric characters (except for the decimal point and minus sign)
+  x <- gsub("[^0-9.-]", "", x)
+  
+  # Convert the cleaned string to numeric
+  x <- as.numeric(x)
+  
+  # Replace NAs with the median (if needed)
+  x[is.na(x)] <- median(x, na.rm = TRUE)
+  
+  return(x)
+}
+
+# Apply the cleaning function to each dataset
+total_use_2021$total_use_2021 <- clean_total_use(total_use_2021$total_use_2021)
+total_use_2022$total_use_2022 <- clean_total_use(total_use_2022$total_use_2022)
+total_use_2023$total_use_2023 <- clean_total_use(total_use_2023$total_use_2023)
+
+# Check the cleaned data
+head(total_use_2021)
+head(total_use_2022)
+head(total_use_2023)
+
+
+```
+
+
+```{r}
+# Replace NA with the median for each column (numeric)
+total_use_2021$total_use_2021[is.na(total_use_2021$total_use_2021)] <- median(total_use_2021$total_use_2021, na.rm = TRUE)
+total_use_2022$total_use_2022[is.na(total_use_2022$total_use_2022)] <- median(total_use_2022$total_use_2022, na.rm = TRUE)
+total_use_2023$total_use_2023[is.na(total_use_2023$total_use_2023)] <- median(total_use_2023$total_use_2023, na.rm = TRUE)
+```
+
+
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
