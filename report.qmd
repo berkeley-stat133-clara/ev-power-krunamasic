@@ -11,9 +11,7 @@ format: typst
 install.packages(c("dplyr", "stringr", "ggplot2", "sf", "leaflet"))
 
 # Load the libraries
-library(dplyr)
-library(stringr)
-library(ggplot2)
+library(tidyverse)
 library(sf)
 library(leaflet)
 ```
@@ -33,79 +31,248 @@ total_use_2021 <- read.csv("data/total-use-2021.csv")
 total_use_2022 <- read.csv("data/total-use-2022.csv")
 total_use_2023 <- read.csv("data/total-use-2023.csv")
 
-# Check the first few rows to ensure the data is loaded correctly
-#head(total_use_2021)
-#head(total_use_2022)
-#head(total_use_2023)
-#print('bleep')
-
-# Check the structure of total_use_2021
-str(total_use_2021)
-
-# Check the first few rows of total_use_2021
-head(total_use_2021)
-
-# Check the structure of total_use_2022
-str(total_use_2022)
-
-# Check the first few rows of total_use_2022
-head(total_use_2022)
-
-# Check the structure of total_use_2023
-str(total_use_2023)
-
-# Check the first few rows of total_use_2023
-head(total_use_2023)
-
-
 ```
 
 ```{r}
-# Clean the Total Energy Use columns by removing non-numeric characters
-clean_total_use <- function(x) {
-  # Remove any non-numeric characters (except for the decimal point and minus sign)
-  x <- gsub("[^0-9.-]", "", x)
+#Clean Data
+
+
+# Function to reshape and clean total energy data
+clean_total_energy <- function(df, year) {
+  # Pivot from wide to long format
+  df_long <- df %>%
+    # Pivot all columns except Energy_Source into long format
+    pivot_longer(
+      cols = -Energy_Source,           # All columns except Energy_Source
+      names_to = "state",               # Column names become "state"
+      values_to = "energy_value"        # Values go into "energy_value"
+    ) %>%
+    # Clean the Energy_Source names
+    mutate(Energy_Source = str_trim(Energy_Source) %>% str_to_lower()) %>%
+    # Add year column
+    mutate(year = year)
   
-  # Convert the cleaned string to numeric
-  x <- as.numeric(x)
-  
-  # Replace NAs with the median (if needed)
-  x[is.na(x)] <- median(x, na.rm = TRUE)
-  
-  return(x)
+  return(df_long)
 }
 
-# Apply the cleaning function to each dataset
-total_use_2021$total_use_2021 <- clean_total_use(total_use_2021$total_use_2021)
-total_use_2022$total_use_2022 <- clean_total_use(total_use_2022$total_use_2022)
-total_use_2023$total_use_2023 <- clean_total_use(total_use_2023$total_use_2023)
+# Apply to all three years
+total_2021_long <- clean_total_energy(total_use_2021, 2021)
+total_2022_long <- clean_total_energy(total_use_2022, 2022)
+total_2023_long <- clean_total_energy(total_use_2023, 2023)
 
-# Check the cleaned data
-head(total_use_2021)
-head(total_use_2022)
-head(total_use_2023)
+# Combine all years
+total_all <- bind_rows(total_2021_long, total_2022_long, total_2023_long)
 
-
+# Look at the result
+print("Reshaped data sample:")
+head(total_all, 20)
 ```
-
-
-```{r}
-# Replace NA with the median for each column (numeric)
-total_use_2021$total_use_2021[is.na(total_use_2021$total_use_2021)] <- median(total_use_2021$total_use_2021, na.rm = TRUE)
-total_use_2022$total_use_2022[is.na(total_use_2022$total_use_2022)] <- median(total_use_2022$total_use_2022, na.rm = TRUE)
-total_use_2023$total_use_2023[is.na(total_use_2023$total_use_2023)] <- median(total_use_2023$total_use_2023, na.rm = TRUE)
-```
-
 
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
-```{r}
+### Step 1: Calculate total energy per state per year
 
+```{r calculate-total-energy}
+# Sum all energy sources to get total energy use
+total_energy_by_state <- total_all %>%
+  group_by(state, year) %>%
+  summarize(total_energy = sum(energy_value, na.rm = TRUE), .groups = 'drop')
+
+print("Total energy by state and year:")
+head(total_energy_by_state, 10)
+```
+
+### Step 2: Extract renewable energy data
+
+```{r extract-renewable}
+## Filter to get only renewable energy
+# Note: The name varies between years, so we use pattern matching
+renewable_energy <- total_all %>%
+  filter(str_detect(Energy_Source, "renewable")) %>%
+  select(state, year, renewable_energy = energy_value)
+
+print("Renewable energy by state and year:")
+head(renewable_energy, 10)
+
+# Check how many rows per year
+print("Count by year:")
+renewable_energy %>% count(year)
+```
+
+### Step 3: Join renewable with total energy and calculate percentage
+
+```{r calculate-percentage}
+# Join renewable energy with total energy
+energy_combined <- renewable_energy %>%
+  left_join(total_energy_by_state, by = c("state", "year"))
+
+# Calculate renewable percentage
+energy_combined <- energy_combined %>%
+  mutate(renewable_pct = (renewable_energy / total_energy) * 100)
+
+print("Combined data with renewable percentage:")
+head(energy_combined, 10)
+
+# Summary statistics
+print("Summary of renewable percentages:")
+summary(energy_combined$renewable_pct)
+```
+
+
+### Step 4: Calculate change from 2021 to 2023
+
+```{r calculate-change}
+# Get 2021 data
+energy_2021 <- energy_combined %>%
+  filter(year == 2021) %>%
+  select(state, renewable_pct_2021 = renewable_pct)
+
+# Get 2023 data
+energy_2023 <- energy_combined %>%
+  filter(year == 2023) %>%
+  select(state, renewable_pct_2023 = renewable_pct)
+
+# Calculate the change
+energy_change <- energy_2021 %>%
+  left_join(energy_2023, by = "state") %>%
+  mutate(pct_point_change = renewable_pct_2023 - renewable_pct_2021)
+
+print("Change in renewable percentage from 2021 to 2023:")
+head(energy_change, 10)
+
+# Summary of changes
+print("Summary of percentage point changes:")
+summary(energy_change$pct_point_change)
+
+# Top 5 states with biggest increases
+print("Top 5 states with largest increases:")
+energy_change %>%
+  arrange(desc(pct_point_change)) %>%
+  head(5)
+
+# Top 5 states with biggest decreases
+print("Top 5 states with largest decreases:")
+energy_change %>%
+  arrange(pct_point_change) %>%
+  head(5)
+```
+
+### Step 5: Prepare data for mapping
+
+```{r prepare-for-mapping}
+# Create a lookup table for state abbreviations to full names
+state_lookup <- data.frame(
+  state = state.abb,
+  state_name = tolower(state.name)
+)
+
+# Add DC manually (not in state.abb)
+state_lookup <- rbind(state_lookup, data.frame(state = "DC", state_name = "district of columbia"))
+
+# Join with our data
+energy_change_map <- energy_change %>%
+  left_join(state_lookup, by = "state")
+
+print("Data ready for mapping:")
+head(energy_change_map, 10)
+
+# Check for any states that didn't match
+print("States without full names:")
+energy_change_map %>%
+  filter(is.na(state_name)) %>%
+  select(state)
 ```
 
 ## **Part 4: Mapping Visualization**
 
-```{r}
+### Get US map data
 
+```{r get-map-data}
+# Get US state map data
+states_map <- map_data("state")
+
+print("Map data sample:")
+head(states_map)
 ```
+
+### Join our energy data with map data
+
+```{r join-map-data}
+# Join our energy change data with the map coordinates
+map_data_joined <- states_map %>%
+  left_join(energy_change_map, by = c("region" = "state_name"))
+
+print("Joined map data sample:")
+head(map_data_joined)
+```
+
+### Create the map: Change in Renewable Energy Share (2021-2023)
+
+```{r create-map, fig.width=12, fig.height=8}
+# Create map showing change in renewable percentage
+ggplot(map_data_joined, aes(x = long, y = lat, group = group, fill = pct_point_change)) +
+  geom_polygon(color = "white", size = 0.3) +
+  scale_fill_gradient2(
+    low = "#d73027",           # Red for decreases
+    mid = "#ffffbf",           # Yellow for no change
+    high = "#1a9850",          # Green for increases
+    midpoint = 0,
+    name = "Change in\nRenewable %\n(percentage\npoints)",
+    na.value = "grey80"
+  ) +
+  coord_fixed(1.3) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40"),
+    legend.position = "right",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  ) +
+  labs(
+    title = "Change in Renewable Energy Share Across U.S. States (2021-2023)",
+    subtitle = "How much did each state's renewable energy percentage change?"
+  )
+```
+
+### Summary tables of biggest changes
+
+```{r summary-table}
+# Top 10 increases
+print("States with Largest Increases in Renewable Energy Share:")
+energy_change %>%
+  arrange(desc(pct_point_change)) %>%
+  head(10) %>%
+  mutate(
+    renewable_pct_2021 = round(renewable_pct_2021, 2),
+    renewable_pct_2023 = round(renewable_pct_2023, 2),
+    pct_point_change = round(pct_point_change, 2)
+  ) %>%
+  knitr::kable(
+    col.names = c("State", "2021 (%)", "2023 (%)", "Change (pct pts)"),
+    align = c("l", "r", "r", "r")
+  )
+
+# Top 10 decreases
+print("\nStates with Largest Decreases in Renewable Energy Share:")
+energy_change %>%
+  arrange(pct_point_change) %>%
+  head(10) %>%
+  mutate(
+    renewable_pct_2021 = round(renewable_pct_2021, 2),
+    renewable_pct_2023 = round(renewable_pct_2023, 2),
+    pct_point_change = round(pct_point_change, 2)
+  ) %>%
+  knitr::kable(
+    col.names = c("State", "2021 (%)", "2023 (%)", "Change (pct pts)"),
+    align = c("l", "r", "r", "r")
+  )
+```
+
+
+
